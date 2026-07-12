@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>全国配車・積み合わせ最適化ダッシュボード | VRP Simulator</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root{
+    --c-kei:#3987e5;   /* 軽  */
+    --c-t2:#199e70;    /* 2t  */
+    --c-t4:#c98500;    /* 4t  */
+    --c-t10:#9085e9;   /* 10t */
+    --c-good:#0ca30c;
+    --c-warn:#fab219;
+    --c-crit:#d03b3b;
+    --grid:#334155;
+  }
+  html{font-family:system-ui,-apple-system,"Segoe UI","Yu Gothic UI","Hiragino Sans",sans-serif;}
+  .tabular{font-variant-numeric:tabular-nums;}
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-track{background:#0f172a}
+  ::-webkit-scrollbar-thumb{background:#334155;border-radius:4px}
+  ::-webkit-scrollbar-thumb:hover{background:#475569}
+  .bar-rect{transition:y .6s cubic-bezier(.22,1,.36,1),height .6s cubic-bezier(.22,1,.36,1);}
+  .util-bar{transition:width .6s cubic-bezier(.22,1,.36,1);}
+  input[type=range]{-webkit-appearance:none;appearance:none;height:6px;border-radius:3px;background:#334155;outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:#3987e5;border:3px solid #0f172a;box-shadow:0 0 0 1px #3987e5;cursor:pointer;}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#3987e5;border:3px solid #0f172a;box-shadow:0 0 0 1px #3987e5;cursor:pointer;}
+  .fade-in{animation:fadeIn .45s ease both;}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  #tooltip{pointer-events:none;transition:opacity .12s ease;}
+</style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen">
+
+<!-- ================= ヘッダー ================= -->
+<header class="border-b border-slate-800 bg-slate-900/95 backdrop-blur sticky top-0 z-40">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center gap-3">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" class="w-5 h-5"><path d="M1 3h13v13H1z M14 8h4l4 4v4h-8 M5.5 21a2 2 0 100-4 2 2 0 000 4z M18.5 21a2 2 0 100-4 2 2 0 000 4z" stroke-linejoin="round"/></svg>
+      </div>
+      <div>
+        <h1 class="text-base sm:text-lg font-bold tracking-tight leading-tight">全国 配車・積み合わせ最適化ダッシュボード</h1>
+        <p class="text-[11px] text-slate-400 leading-tight">東京都内 1日15件 × 大阪・愛知・福岡/関東近郊/その他全国 出荷指示 × VRPアルゴリズム | 物流技術管理士監修モデル</p>
+      </div>
+    </div>
+    <div class="ml-auto flex items-center gap-2">
+      <span class="hidden sm:inline-flex items-center gap-1.5 text-[11px] text-slate-400 bg-slate-800 border border-slate-700 rounded-full px-3 py-1">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>ダミーデータ シミュレーション稼働中
+      </span>
+      <button id="btnRegen" class="text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg px-3 py-1.5 transition-colors flex items-center gap-1.5">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5"><path d="M21 12a9 9 0 11-2.6-6.4M21 3v6h-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        出荷データ再生成
+      </button>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+  <!-- ================= 1. 経営KPIカード（月間・全国） ================= -->
+  <section aria-label="経営・運行財務インパクト">
+    <div class="flex items-center justify-between mb-2">
+      <p class="text-[11px] text-slate-500 font-medium">月間サマリー（当月20営業日・全国）</p>
+      <p id="kpiRegionSplit" class="text-[11px] text-slate-500 tabular"></p>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3" id="kpiGrid">
+      <div class="bg-slate-800/70 border border-slate-700/70 rounded-xl p-4">
+        <p class="text-[11px] text-slate-400 font-medium">総配送件数</p>
+        <p class="text-2xl font-bold tabular mt-1"><span id="kpiCount">0</span><span class="text-sm font-medium text-slate-400 ml-1">件</span></p>
+        <p class="text-[11px] text-slate-500 mt-1">全国 当月出荷指示</p>
+      </div>
+      <div class="bg-slate-800/70 border border-slate-700/70 rounded-xl p-4">
+        <p class="text-[11px] text-slate-400 font-medium">総出荷重量 / 総容積</p>
+        <p class="text-xl font-bold tabular mt-1.5"><span id="kpiKg">0</span><span class="text-xs font-medium text-slate-400">kg</span></p>
+        <p class="text-sm font-semibold tabular text-slate-300"><span id="kpiM3">0</span><span class="text-xs font-medium text-slate-400">M3</span> / <span id="kpiBox">0</span><span class="text-xs font-medium text-slate-400">箱</span></p>
+      </div>
+      <div class="bg-slate-800/70 border border-slate-700/70 rounded-xl p-4">
+        <p class="text-[11px] text-slate-400 font-medium">最適化前 想定運賃<span class="text-slate-500">（個別手配）</span></p>
+        <p class="text-2xl font-bold tabular mt-1 text-slate-300">¥<span id="kpiBefore">0</span></p>
+        <p class="text-[11px] text-slate-500 mt-1 tabular">車両延べ <span id="kpiBeforeVeh">0</span>台（1件1台ベタ付け）</p>
+      </div>
+      <div class="bg-slate-800/70 border border-slate-700/70 rounded-xl p-4">
+        <p class="text-[11px] text-slate-400 font-medium">最適化後 実績運賃<span class="text-slate-500">（混載・大車格）</span></p>
+        <p class="text-2xl font-bold tabular mt-1">¥<span id="kpiAfter">0</span></p>
+        <p class="text-[11px] text-slate-500 mt-1 tabular">車両延べ <span id="kpiAfterVeh">0</span>台に集約</p>
+      </div>
+      <div class="col-span-2 bg-gradient-to-br from-emerald-950/80 to-slate-800/70 border border-emerald-700/50 rounded-xl p-4 relative overflow-hidden">
+        <div class="absolute -right-4 -top-4 w-24 h-24 rounded-full bg-emerald-500/10 blur-xl"></div>
+        <p class="text-[11px] text-emerald-300/90 font-semibold">削減された輸送コスト（月間・全国）</p>
+        <div class="flex items-baseline gap-3 mt-1">
+          <p class="text-3xl font-extrabold tabular text-emerald-300">▲¥<span id="kpiSave">0</span></p>
+          <p class="text-lg font-bold tabular text-emerald-400">−<span id="kpiSavePct">0</span>%</p>
+        </div>
+        <p class="text-[11px] text-emerald-200/60 mt-1 tabular">車両延べ台数 <span id="kpiVehShift">0 → 0</span> 台 | 年間換算 ▲¥<span id="kpiSaveYear">0</span>（×12ヶ月）</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 1b. 表示日セレクタ（東京都内フォーカス） ================= -->
+  <section class="bg-slate-800/70 border border-slate-700/70 rounded-xl px-5 py-3.5" aria-label="表示日選択">
+    <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
+      <div class="flex items-center gap-2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#3987e5" stroke-width="2" class="w-4 h-4 shrink-0"><path d="M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <label for="daySelect" class="text-xs font-bold text-slate-200 shrink-0">東京都内 表示日</label>
+        <select id="daySelect" class="bg-slate-900 border border-slate-600 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-500"></select>
+      </div>
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400 tabular">
+        <span><span id="dayLabel">-</span> の東京都内出荷 <b class="text-slate-100"><span id="dayCount">0</span>件</b></span>
+        <span>運賃 ¥<span id="dayBefore">0</span> → ¥<span id="dayAfter">0</span></span>
+        <span class="text-emerald-400 font-semibold">▲¥<span id="daySave">0</span>（−<span id="daySavePct">0</span>%）</span>
+        <span>車両 <span id="dayVeh">0 → 0</span>台</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 2. 配車シミュレーション & インサイト ================= -->
+  <section class="grid grid-cols-1 lg:grid-cols-5 gap-4" aria-label="配車シミュレーションとインサイト">
+
+    <!-- 車種別台数シフト比較グラフ -->
+    <div class="lg:col-span-3 bg-slate-800/70 border border-slate-700/70 rounded-xl p-5">
+      <div class="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 class="text-sm font-bold">配車シミュレーション：車種別台数シフト<span class="text-slate-500 font-normal">（東京都内・選択日）</span></h2>
+          <p class="text-[11px] text-slate-400 mt-0.5">個別手配（ベタ付け）と最適積み合わせアルゴリズム適用後の必要車両台数</p>
+        </div>
+        <div class="flex items-center gap-4 text-[11px] text-slate-300">
+          <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm border-2 border-slate-500 bg-slate-500/25 inline-block"></span>個別手配</span>
+          <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm inline-block" style="background:linear-gradient(135deg,#3987e5 40%,#199e70 40%,#199e70 60%,#c98500 60%)"></span>最適化後（車種色）</span>
+        </div>
+      </div>
+      <svg id="fleetChart" viewBox="0 0 640 290" class="w-full mt-3" role="img" aria-label="車種別台数の比較棒グラフ"></svg>
+      <div class="mt-2 grid grid-cols-4 gap-2" id="fleetChipRow"></div>
+    </div>
+
+    <!-- 現場制約インサイトログ -->
+    <div class="lg:col-span-2 bg-slate-800/70 border border-slate-700/70 rounded-xl p-5 flex flex-col">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-bold flex items-center gap-2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fab219" stroke-width="2" class="w-4 h-4"><path d="M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          現場制約インサイトログ
+        </h2>
+        <span id="insightCount" class="text-[11px] text-slate-400 bg-slate-700/60 rounded-full px-2 py-0.5 tabular">0件</span>
+      </div>
+      <p class="text-[11px] text-slate-400 mt-1">アルゴリズムが検知した物理制約とルート再編の判断根拠</p>
+      <div id="insightLog" class="mt-3 space-y-2 overflow-y-auto pr-1 flex-1" style="max-height:340px"></div>
+    </div>
+  </section>
+
+  <!-- ================= 3. 動的パラメーター調整 ================= -->
+  <section class="bg-slate-800/70 border border-slate-700/70 rounded-xl p-5" aria-label="動的パラメーター調整">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <h2 class="text-sm font-bold flex items-center gap-2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#3987e5" stroke-width="2" class="w-4 h-4"><path d="M4 21v-7m0-4V3m8 18v-9m0-4V3m8 18v-5m0-4V3M1 14h6m2-6h6m2 8h6" stroke-linecap="round"/></svg>
+        動的パラメーター調整（リアルタイム再配車）
+      </h2>
+      <p class="text-[11px] text-slate-400">スライダーを動かすと全国の月間データを即時に再計算し、台数・コストが連動します</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-5 mt-4">
+      <div>
+        <div class="flex items-baseline justify-between mb-2">
+          <label for="sliderAm" class="text-xs font-semibold text-slate-200">時間指定の許容バッファ（午前着ルートの余裕時間）</label>
+          <span class="text-sm font-bold tabular text-blue-400"><span id="valAm">90</span> 分</span>
+        </div>
+        <input type="range" id="sliderAm" min="30" max="180" step="10" value="90" class="w-full">
+        <div class="flex justify-between text-[10px] text-slate-500 mt-1"><span>30分（タイト：1台あたりAM件数少）</span><span>180分（緩和：AM混載増）</span></div>
+      </div>
+      <div>
+        <div class="flex items-baseline justify-between mb-2">
+          <label for="sliderLoss" class="text-xs font-semibold text-slate-200">追加作業に伴うロスタイム（カゴ台車・室内搬入等 1件あたり）</label>
+          <span class="text-sm font-bold tabular text-amber-400"><span id="valLoss">15</span> 分</span>
+        </div>
+        <input type="range" id="sliderLoss" min="0" max="45" step="5" value="15" class="w-full">
+        <div class="flex justify-between text-[10px] text-slate-500 mt-1"><span>0分（付帯なし想定）</span><span>45分（重付帯：配送能力大幅減）</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 4. ルート別積載率詳細 ================= -->
+  <section class="bg-slate-800/70 border border-slate-700/70 rounded-xl p-5" aria-label="車両別・ルート別積載率詳細">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <div>
+        <h2 class="text-sm font-bold">車両別・ルート別 積載率詳細ビュー<span class="text-slate-500 font-normal">（東京都内・選択日）</span></h2>
+        <p class="text-[11px] text-slate-400 mt-0.5">重量・容積のダブルチェック判定：どちらか先に上限到達した側が足切り基準（太字側がボトルネック）</p>
+      </div>
+      <div class="flex items-center gap-3 text-[11px] text-slate-400">
+        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm inline-block" style="background:var(--c-good)"></span>高積載 ≥85%</span>
+        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm inline-block" style="background:var(--c-kei)"></span>標準 60–85%</span>
+        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm inline-block" style="background:var(--c-warn)"></span>低積載 &lt;60%</span>
+      </div>
+    </div>
+    <div class="overflow-x-auto mt-3 -mx-2 px-2">
+      <table class="w-full text-xs min-w-[860px]">
+        <thead>
+          <tr class="text-left text-[11px] text-slate-400 border-b border-slate-700">
+            <th class="py-2 pr-3 font-semibold">ルート</th>
+            <th class="py-2 pr-3 font-semibold">車種</th>
+            <th class="py-2 pr-3 font-semibold text-right">件数</th>
+            <th class="py-2 pr-3 font-semibold w-44">重量積載率</th>
+            <th class="py-2 pr-3 font-semibold w-44">容積積載率</th>
+            <th class="py-2 pr-3 font-semibold">時間指定</th>
+            <th class="py-2 pr-3 font-semibold">エリア / 越境</th>
+            <th class="py-2 font-semibold">制約</th>
+          </tr>
+        </thead>
+        <tbody id="routeTbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= 4b. 地方拠点サマリー ================= -->
+  <section class="bg-slate-800/70 border border-slate-700/70 rounded-xl p-5" aria-label="地方拠点サマリー">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <div>
+        <h2 class="text-sm font-bold">地方拠点サマリー<span class="text-slate-500 font-normal">（東京都外・月間累計）</span></h2>
+        <p class="text-[11px] text-slate-400 mt-0.5">大阪・愛知・福岡・関東近郊は1日3～4件、その他37道府県は1日0～1件程度のため、都度1～2台便が中心（東京都内のような区部越境混載の対象外）</p>
+      </div>
+      <span id="regionalTotal" class="text-[11px] text-slate-400 bg-slate-700/60 rounded-full px-2.5 py-0.5 tabular"></span>
+    </div>
+    <div class="overflow-x-auto mt-3 -mx-2 px-2">
+      <table class="w-full text-xs min-w-[640px]">
+        <thead>
+          <tr class="text-left text-[11px] text-slate-400 border-b border-slate-700">
+            <th class="py-2 pr-3 font-semibold">地域</th>
+            <th class="py-2 pr-3 font-semibold">区分</th>
+            <th class="py-2 pr-3 font-semibold text-right">月間件数</th>
+            <th class="py-2 pr-3 font-semibold text-right">車両延べ台数</th>
+            <th class="py-2 pr-3 font-semibold text-right">月間運賃</th>
+            <th class="py-2 font-semibold">備考</th>
+          </tr>
+        </thead>
+        <tbody id="regionalTbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= 5. Excelデータシミュレーター ================= -->
+  <section class="bg-slate-800/70 border border-slate-700/70 rounded-xl p-5" aria-label="出荷指示データ">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <div>
+        <h2 class="text-sm font-bold">Excelデータシミュレーター（出荷指示 元データ）</h2>
+        <p class="text-[11px] text-slate-400 mt-0.5">基幹システムから連携される想定の出荷指示、当月20営業日・全国分。列フィルターで絞り込み可能</p>
+      </div>
+      <span id="dataCount" class="text-[11px] text-slate-400 bg-slate-700/60 rounded-full px-2.5 py-0.5 tabular"></span>
+    </div>
+    <div class="flex flex-wrap gap-2 mt-3 items-center text-xs">
+      <input id="fltQ" type="text" placeholder="納品先名で検索…" class="bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 w-44 placeholder:text-slate-500 focus:outline-none focus:border-blue-500">
+      <select id="fltRegion" class="bg-slate-900 border border-slate-600 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 max-w-[160px]">
+        <option value="">全地域</option>
+      </select>
+      <select id="fltTime" class="bg-slate-900 border border-slate-600 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500">
+        <option value="">時間指定：すべて</option>
+        <option value="AM">午前着のみ</option>
+        <option value="PM">午後着のみ</option>
+        <option value="NONE">指定なしのみ</option>
+      </select>
+      <label class="flex items-center gap-1.5 cursor-pointer select-none bg-slate-900 border border-slate-600 rounded-lg px-2.5 py-1.5">
+        <input type="checkbox" id="fltLtd" class="accent-red-500">2t限定のみ
+      </label>
+      <label class="flex items-center gap-1.5 cursor-pointer select-none bg-slate-900 border border-slate-600 rounded-lg px-2.5 py-1.5">
+        <input type="checkbox" id="fltExt" class="accent-amber-500">追加作業のみ
+      </label>
+      <button id="fltClear" class="text-slate-400 hover:text-slate-200 underline underline-offset-2 ml-1">クリア</button>
+    </div>
+    <div class="overflow-x-auto mt-3 -mx-2 px-2">
+      <table class="w-full text-xs min-w-[1020px]">
+        <thead>
+          <tr class="text-left text-[11px] text-slate-400 border-b border-slate-700">
+            <th class="py-2 pr-3 font-semibold">No.</th>
+            <th class="py-2 pr-3 font-semibold">納品先</th>
+            <th class="py-2 pr-3 font-semibold">日付</th>
+            <th class="py-2 pr-3 font-semibold">都道府県</th>
+            <th class="py-2 pr-3 font-semibold">郵便番号</th>
+            <th class="py-2 pr-3 font-semibold text-right">重量(kg)</th>
+            <th class="py-2 pr-3 font-semibold text-right">容積(M3)</th>
+            <th class="py-2 pr-3 font-semibold text-right">箱数</th>
+            <th class="py-2 pr-3 font-semibold">時間指定</th>
+            <th class="py-2 pr-3 font-semibold">2t限定</th>
+            <th class="py-2 font-semibold">追加作業</th>
+          </tr>
+        </thead>
+        <tbody id="dataTbody"></tbody>
+      </table>
+    </div>
+    <div class="flex items-center justify-between mt-3 text-xs">
+      <p class="text-slate-400 tabular" id="pageInfo"></p>
+      <div class="flex gap-1" id="pager"></div>
+    </div>
+  </section>
+
+  <footer class="text-center text-[11px] text-slate-500 pb-8 pt-2 leading-relaxed">
+    本ダッシュボードは架空のダミーデータによる配車シミュレーションです。運賃・制約条件はモデル値であり実勢と異なります。<br>
+    東京都内（1日15件想定）は車格制限・付帯作業・時間指定・重量/容積ダブルチェックを考慮した貪欲法＋区部越境統合ヒューリスティックでVRP近似解を算出。<br>
+    大阪・愛知・福岡・関東近郊・その他道府県は日次件数が少ないため、車格制限のみを考慮した簡易パッキングで台数を算出しています。
+  </footer>
+</main>
+
+<div id="tooltip" class="fixed z-50 opacity-0 bg-slate-950/95 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-xl"></div>
+
+<script>
+"use strict";
+/* =========================================================
+   0. 共通定義
+========================================================= */
+const VEHICLES = [
+  {key:"kei", name:"軽（ハイゼット）", short:"軽",  label:"軽",    maxKg:350,   maxM3:2.0,  maxBox:50,  cost:15000, color:"#3987e5", stopBudget:12},
+  {key:"t2",  name:"2t車",            short:"2t",  label:"2t車",  maxKg:2000,  maxM3:8.0,  maxBox:150, cost:25000, color:"#199e70", stopBudget:20},
+  {key:"t4",  name:"4t車",            short:"4t",  label:"4t車",  maxKg:4000,  maxM3:18.0, maxBox:300, cost:35000, color:"#c98500", stopBudget:28},
+  {key:"t10", name:"10t車",           short:"10t", label:"10t車", maxKg:10000, maxM3:40.0, maxBox:800, cost:55000, color:"#9085e9", stopBudget:36},
+];
+const AREAS = [
+  {key:"都心", zips:["100","101","103","104","105"], wards:["千代田区","中央区","港区"],           w:0.20},
+  {key:"城南", zips:["140","143","144","145","153"], wards:["品川区","大田区","目黒区"],           w:0.17},
+  {key:"城西", zips:["150","151","160","164","166"], wards:["渋谷区","新宿区","中野区","杉並区"],  w:0.17},
+  {key:"城北", zips:["114","170","173","174","176"], wards:["北区","豊島区","板橋区","練馬区"],    w:0.15},
+  {key:"城東", zips:["120","124","130","135","132"], wards:["足立区","葛飾区","墨田区","江東区","江戸川区"], w:0.18},
+  {key:"多摩", zips:["190","192","194","208"],       wards:["立川市","八王子市","町田市","武蔵村山市"], w:0.13},
+];
+const ADJ = {
+  "都心":["城南","城西","城北","城東"],
+  "城南":["都心","城西"],
+  "城西":["都心","城南","城北","多摩"],
+  "城北":["都心","城西","城東"],
+  "城東":["都心","城北"],
+  "多摩":["城西"],
+};
+const NAME_A = ["丸和","京浜","武蔵","東和","旭","大和","山手","高砂","若葉","富士見","三田","早稲田","葛西","立花","八雲","千歳","青葉","菱光","共栄","昭和堂"];
+const NAME_B = ["商事","ストア","マート","物流センター","製作所","薬品","食品","電機","ホームセンター","百貨店","資材","メディカル"];
+const EXTRA_TYPES = ["カゴ台車","パワーゲート","室内搬入","2名作業"];
+const yen = n => Math.round(n).toLocaleString("ja-JP");
+const fmt = (n,d=0) => n.toLocaleString("ja-JP",{minimumFractionDigits:d,maximumFractionDigits:d});
+
+/* =========================================================
+   0b. 全国地域構成（東京都内は詳細VRP、他地域は地方拠点サマリー）
+========================================================= */
+// 主要都市・関東近郊：1日あたり平均3.5件想定
+const REGIONS = [
+  {key:"大阪府",   tier:"major"}, {key:"愛知県", tier:"major"}, {key:"福岡県", tier:"major"},
+  {key:"神奈川県", tier:"kanto"}, {key:"埼玉県", tier:"kanto"}, {key:"千葉県", tier:"kanto"},
+  {key:"茨城県",   tier:"kanto"}, {key:"栃木県", tier:"kanto"}, {key:"群馬県", tier:"kanto"},
+].map(r=>({...r, mean:3.5}));
+// その他37道府県：1日あたり平均0.4件（0～1件が大半）
+const OTHER_PREFS = ["北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県","新潟県","富山県","石川県",
+  "福井県","山梨県","長野県","岐阜県","静岡県","三重県","滋賀県","京都府","兵庫県","奈良県","和歌山県","鳥取県",
+  "島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","佐賀県","長崎県","熊本県","大分県",
+  "宮崎県","鹿児島県","沖縄県"];
+OTHER_PREFS.forEach(p => REGIONS.push({key:p, tier:"other", mean:0.4}));
+const TIER_LABEL = {major:"主要都市", kanto:"関東近郊", other:"その他"};
+const PREF_ZIP = {
+  "大阪府":["530","540","550","590"], "愛知県":["450","460","480"], "福岡県":["810","820","830"],
+  "神奈川県":["220","230","240"], "埼玉県":["330","340","350"], "千葉県":["260","270","280"],
+  "茨城県":["300","310"], "栃木県":["320","328"], "群馬県":["370","379"],
+  "北海道":["060","070"], "青森県":["030"], "岩手県":["020"], "宮城県":["980"], "秋田県":["010"],
+  "山形県":["990"], "福島県":["960"], "新潟県":["950"], "富山県":["930"], "石川県":["920"],
+  "福井県":["910"], "山梨県":["400"], "長野県":["380"], "岐阜県":["500"], "静岡県":["420"],
+  "三重県":["510"], "滋賀県":["520"], "京都府":["600"], "兵庫県":["650"], "奈良県":["630"],
+  "和歌山県":["640"], "鳥取県":["680"], "島根県":["690"], "岡山県":["700"], "広島県":["730"],
+  "山口県":["750"], "徳島県":["770"], "香川県":["760"], "愛媛県":["790"], "高知県":["780"],
+  "佐賀県":["840"], "長崎県":["850"], "熊本県":["860"], "大分県":["870"], "宮崎県":["880"],
+  "鹿児島県":["890"], "沖縄県":["900"],
+};
+// 当月の営業日20日分（土日除く）
+function businessDays(n){
+  const days = []; const d = new Date(); d.setDate(1); d.setHours(0,0,0,0);
+  while(days.length < n){
+    const dow = d.getDay();
+    if(dow !== 0 && dow !== 6) days.push(new Date(d));
+    d.setDate(d.getDate()+1);
+  }
+  return days;
+}
+const BIZ_DAYS = businessDays(20);
+const WD = ["日","月","火","水","木","金","土"];
+const dayLabel = d => `${d.getMonth()+1}/${d.getDate()}(${WD[d.getDay()]})`;
+function poisson(rng, mean){
+  const L = Math.exp(-mean); let k = 0, p = 1;
+  do { k++; p *= rng(); } while(p > L);
+  return k-1;
+}
+
+/* =========================================================
+   1. ダミー出荷データ生成（シード付き乱数で再現可能）
+========================================================= */
+function mulberry32(seed){
+  return function(){
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function generateShipments(seed){
+  const rng = mulberry32(seed);
+  const pick = arr => arr[Math.floor(rng()*arr.length)];
+  // 東京都内エリア抽選テーブル（ward-group）
+  const lot = [];
+  AREAS.forEach(a => { for(let i=0;i<Math.round(a.w*100);i++) lot.push(a); });
+  const list = [];
+  let id = 0;
+  function makeShipment(dayIdx, regionKey, tokyoArea){
+    id++;
+    const heavy = rng() < 0.06;
+    let kg = heavy ? 900 + rng()*1500 : 15 + Math.pow(rng(),2.2)*880;
+    kg = Math.round(kg);
+    const density = 140 + rng()*220;                    // kg/M3
+    const m3 = Math.max(0.05, Math.round(kg/density*100)/100);
+    const boxes = Math.max(1, Math.round(m3*(10+rng()*8)));
+    const tr = rng();
+    const tw = tr < 0.30 ? "AM" : tr < 0.48 ? "PM" : "NONE";
+    // 2t限定（路地狭・JIT待機所なし）：2t車に物理的に積める貨物のみ発生し得る
+    const limited = rng() < 0.08 && kg <= 2000 && m3 <= 8.0 && boxes <= 150;
+    const extra = rng() < 0.12 ? pick(EXTRA_TYPES) : null;
+    const zipPrefixes = tokyoArea ? tokyoArea.zips : (PREF_ZIP[regionKey] || ["000"]);
+    const namePool = tokyoArea ? tokyoArea.wards : [regionKey];
+    list.push({
+      id, day: dayIdx, region: regionKey,
+      area: tokyoArea ? tokyoArea.key : regionKey,
+      name: `${pick(namePool)} ${pick(NAME_A)}${pick(NAME_B)}`,
+      zip: `${pick(zipPrefixes)}-${String(Math.floor(rng()*10000)).padStart(4,"0")}`,
+      kg, m3, boxes, tw, limited, extra,
+    });
+  }
+  BIZ_DAYS.forEach((d, dayIdx)=>{
+    const tokyoCount = poisson(rng, 15);
+    for(let i=0;i<tokyoCount;i++) makeShipment(dayIdx, "東京都", pick(lot));
+    REGIONS.forEach(r=>{
+      const n = poisson(rng, r.mean);
+      for(let i=0;i<n;i++) makeShipment(dayIdx, r.key, null);
+    });
+  });
+  return list;
+}
+
+/* =========================================================
+   2. ベースライン：個別手配（1件=1台、最小適合車格）
+========================================================= */
+function fitsVehicle(v, kg, m3, boxes){ return kg<=v.maxKg && m3<=v.maxM3 && boxes<=v.maxBox; }
+function smallestClass(s){
+  for(let c=0;c<VEHICLES.length;c++) if(fitsVehicle(VEHICLES[c], s.kg, s.m3, s.boxes)) return c;
+  return VEHICLES.length-1;
+}
+function baseline(shipments){
+  const counts = [0,0,0,0]; let cost = 0;
+  shipments.forEach(s => { const c = smallestClass(s); counts[c]++; cost += VEHICLES[c].cost; });
+  return {counts, cost, vehicles: shipments.length};
+}
+
+/* =========================================================
+   3. 最適化：エリア内FFD詰め込み → 車格決定 → 低積載ルートの越境統合
+========================================================= */
+function newRoute(area){
+  return {stops:[], kg:0, m3:0, boxes:0, am:0, extra:0, limited:false, areas:new Set([area])};
+}
+function effStops(r, loss){ return r.stops.length + r.extra * (loss/10); }  // 付帯1件 = 1 + loss/10 件相当
+function routeFits(r, s, capIdx, params){
+  const v = VEHICLES[capIdx];
+  if(r.kg + s.kg > v.maxKg || r.m3 + s.m3 > v.maxM3 || r.boxes + s.boxes > v.maxBox) return false;
+  const addExtra = s.extra ? 1 : 0;
+  if(r.stops.length + 1 + (r.extra + addExtra) * (params.loss/10) > v.stopBudget) return false;
+  if(s.tw === "AM" && r.am + 1 > params.amCap) return false;
+  return true;
+}
+function addStop(r, s){
+  r.stops.push(s); r.kg += s.kg; r.m3 += s.m3; r.boxes += s.boxes;
+  if(s.tw === "AM") r.am++;
+  if(s.extra) r.extra++;
+  if(s.limited) r.limited = true;
+}
+// ルート内容から最小適合車格を決定（2t限定ルートは上限=2t）
+function chooseClass(r, params){
+  const cap = r.limited ? 1 : 3;
+  for(let c=0;c<=cap;c++){
+    const v = VEHICLES[c];
+    if(r.kg<=v.maxKg && r.m3<=v.maxM3 && r.boxes<=v.maxBox && effStops(r, params.loss)<=v.stopBudget) return c;
+  }
+  return cap;
+}
+function packPool(pool, capIdx, area, params, amBlockCounter){
+  // First-Fit-Decreasing：重量降順で既存ルートに順次詰め、入らなければ新規
+  const sorted = [...pool].sort((a,b)=>b.kg-a.kg);
+  const routes = [];
+  for(const s of sorted){
+    let placed = false, amBlocked = false;
+    for(const r of routes){
+      if(routeFits(r, s, capIdx, params)){ addStop(r, s); placed = true; break; }
+      // 容積・件数は入るのにAM上限だけで弾かれたケースを検知
+      if(s.tw==="AM"){
+        const v = VEHICLES[capIdx];
+        const okPhys = r.kg+s.kg<=v.maxKg && r.m3+s.m3<=v.maxM3 && r.boxes+s.boxes<=v.maxBox
+          && r.stops.length+1+(r.extra+(s.extra?1:0))*(params.loss/10)<=v.stopBudget;
+        if(okPhys && r.am+1>params.amCap) amBlocked = true;
+      }
+    }
+    if(!placed){
+      if(amBlocked) amBlockCounter.n++;
+      const r = newRoute(area); addStop(r, s); routes.push(r);
+    }
+  }
+  return routes;
+}
+function optimize(shipments, params){
+  const insights = [];
+  let routes = [];
+  const amBlockByArea = {};
+
+  for(const area of AREAS){
+    const pool = shipments.filter(s=>s.area===area.key);
+    if(!pool.length) continue;
+    const restricted = pool.filter(s=>s.limited);
+    const normal     = pool.filter(s=>!s.limited);
+    const amCounter  = {n:0};
+
+    // (a) 2t限定先 → 上限2t車格でパッキング
+    const restRoutes = packPool(restricted, 1, area.key, params, amCounter);
+    // (b) 空いた2t限定ルートに通常小口を相乗り（軽い順）
+    const normalAsc = [...normal].sort((a,b)=>a.kg-b.kg);
+    const used = new Set();
+    for(const r of restRoutes){
+      for(const s of normalAsc){
+        if(used.has(s.id)) continue;
+        if(routeFits(r, s, 1, params)){ addStop(r, s); used.add(s.id); }
+      }
+    }
+    const remaining = normal.filter(s=>!used.has(s.id));
+    // (c) 残りをパッキング：4t上限案と10t上限案の総運賃を比較し安い方を採用
+    const cntA = {n:0}, cntB = {n:0};
+    const packA = packPool(remaining, 3, area.key, params, cntA);   // 10tまで許容
+    const packB = packPool(remaining, 2, area.key, params, cntB);   // 4tまで（都内多頻度型）
+    const costOf = rs => rs.reduce((a,r)=>a+VEHICLES[chooseClass(r,params)].cost,0);
+    const useB = costOf(packB) <= costOf(packA);
+    const normRoutes = useB ? packB : packA;
+    amBlockByArea[area.key] = (useB ? cntB : cntA).n + amCounter.n;
+
+    // インサイト：車格制限による分割・格下げ
+    if(restRoutes.length >= 2){
+      const tk = restRoutes.reduce((a,r)=>a+r.kg,0), tm = restRoutes.reduce((a,r)=>a+r.m3,0);
+      if(tk <= VEHICLES[2].maxKg && tm <= VEHICLES[2].maxM3){
+        insights.push({type:"crit", tag:"車格制約",
+          text:`${area.key}：物量合計 ${fmt(tk)}kg / ${fmt(tm,1)}M3 は4t車1台で運べるが、2t車限定（路地狭・JIT待機所なし）の納品先 ${restricted.length}件を含むため、2t車${restRoutes.length}台に分割配車。`});
+      }else{
+        insights.push({type:"crit", tag:"車格制約",
+          text:`${area.key}：2t車限定の納品先 ${restricted.length}件により、大型化不可のまま2t車${restRoutes.length}台で編成（4t・10t進入不可）。`});
+      }
+    }else if(restRoutes.length === 1 && normRoutes.some(r=>chooseClass(r,params)>=2)){
+      insights.push({type:"crit", tag:"車格制約",
+        text:`${area.key}：4t車ルートに容積の空きはあるが、2t車限定先 ${restricted.length}件は進入不可のため2t車1台を別建て。`});
+    }
+    routes.push(...restRoutes, ...normRoutes);
+  }
+
+  // (d) 越境統合：低積載ルート同士を隣接エリア間でマージ
+  let merged = true;
+  while(merged){
+    merged = false;
+    outer:
+    for(let i=0;i<routes.length;i++){
+      for(let j=i+1;j<routes.length;j++){
+        const A = routes[i], B = routes[j];
+        const aArea = [...A.areas][0], bArea = [...B.areas][0];
+        const sameOrAdj = aArea===bArea || (ADJ[aArea]||[]).includes(bArea)
+          || [...A.areas].some(x=>[...B.areas].some(y=>x===y||(ADJ[x]||[]).includes(y)));
+        if(!sameOrAdj) continue;
+        const utilA = routeUtil(A, params), utilB = routeUtil(B, params);
+        if(utilA >= 0.60 && utilB >= 0.60) continue;   // 両方それなりに積めていれば触らない
+        // 統合後の仮ルート
+        const M = newRoute(aArea);
+        [...A.stops, ...B.stops].forEach(s=>addStop(M,s));
+        B.areas.forEach(x=>M.areas.add(x)); A.areas.forEach(x=>M.areas.add(x));
+        if(M.am > params.amCap) continue;
+        const cap = M.limited ? 1 : 3;
+        const c = chooseClass(M, params);
+        const v = VEHICLES[c];
+        const physOk = M.kg<=v.maxKg && M.m3<=v.maxM3 && M.boxes<=v.maxBox && effStops(M,params.loss)<=v.stopBudget && c<=cap;
+        if(!physOk) continue;
+        const before = VEHICLES[chooseClass(A,params)].cost + VEHICLES[chooseClass(B,params)].cost;
+        if(v.cost >= before) continue;
+        // マージ確定
+        const cross = M.areas.size > 1;
+        const save = before - v.cost;
+        insights.push({type:"good", tag: cross ? "越境混載" : "同エリア統合",
+          text:`${[...M.areas].join("⇄")}：積載率 ${Math.round(utilA*100)}% と ${Math.round(utilB*100)}% の2ルートを${v.label}1台に統合。車両1台削減（▲¥${yen(save)}）。`});
+        routes.splice(j,1); routes.splice(i,1); routes.push(M);
+        merged = true;
+        break outer;
+      }
+    }
+  }
+
+  // インサイト：AM密度による分割
+  for(const [area, n] of Object.entries(amBlockByArea)){
+    if(n > 0) insights.push({type:"time", tag:"時間制約",
+      text:`${area}：午前着指定の密度が許容バッファ（1台あたり最大${params.amCap}件）を超過し、追加ルート${n}本が発生。バッファ拡大で台数削減余地あり。`});
+  }
+  // インサイト：付帯作業ペナルティ
+  const extraTotal = shipments.filter(s=>s.extra).length;
+  if(extraTotal > 0 && params.loss > 0){
+    insights.push({type:"time", tag:"付帯作業",
+      text:`カゴ台車・パワーゲート・室内搬入等 ${extraTotal}件。ロスタイム${params.loss}分/件により付帯1件を約${(1+params.loss/10).toFixed(1)}件相当として配送上限から控除。`});
+  }
+
+  // 車格決定・集計
+  const counts = [0,0,0,0]; let cost = 0;
+  routes.forEach(r=>{ r.cls = chooseClass(r, params); counts[r.cls]++; cost += VEHICLES[r.cls].cost; });
+  // 表示順：エリア→車格降順
+  const order = Object.fromEntries(AREAS.map((a,i)=>[a.key,i]));
+  routes.sort((a,b)=> (order[[...a.areas][0]]-order[[...b.areas][0]]) || (b.cls-a.cls) || (b.kg-a.kg));
+  routes.forEach((r,i)=> r.no = "ルート" + String(i+1).padStart(3,"0"));
+  return {routes, insights, counts, cost};
+}
+function routeUtil(r, params){
+  const v = VEHICLES[chooseClass(r, params)];
+  return Math.max(r.kg/v.maxKg, r.m3/v.maxM3, r.boxes/v.maxBox);
+}
+
+/* =========================================================
+   3b. 地方拠点：小口向け簡易パッキング（1地域・1日あたり0～4件程度）
+   件数が少なく越境統合の余地がないため、車格制限のみ考慮した単純詰め込み
+========================================================= */
+function optimizeRegionDay(dayShipments, params){
+  if(!dayShipments.length) return {routes:[], cost:0};
+  const area = dayShipments[0].area;
+  const restricted = dayShipments.filter(s=>s.limited);
+  const normal = dayShipments.filter(s=>!s.limited);
+  const cnt = {n:0};
+  const restRoutes = packPool(restricted, 1, area, params, cnt);
+  const normalAsc = [...normal].sort((a,b)=>a.kg-b.kg);
+  const used = new Set();
+  for(const r of restRoutes){
+    for(const s of normalAsc){
+      if(used.has(s.id)) continue;
+      if(routeFits(r, s, 1, params)){ addStop(r, s); used.add(s.id); }
+    }
+  }
+  const remaining = normal.filter(s=>!used.has(s.id));
+  const cntA = {n:0}, cntB = {n:0};
+  const packA = packPool(remaining, 3, area, params, cntA);
+  const packB = packPool(remaining, 2, area, params, cntB);
+  const costOf = rs => rs.reduce((a,r)=>a+VEHICLES[chooseClass(r,params)].cost,0);
+  const normRoutes = costOf(packB) <= costOf(packA) ? packB : packA;
+  const routes = [...restRoutes, ...normRoutes];
+  routes.forEach(r => r.cls = chooseClass(r, params));
+  const cost = routes.reduce((a,r)=>a+VEHICLES[r.cls].cost,0);
+  return {routes, cost};
+}
+
+/* =========================================================
+   3c. 月次集計：東京都内20営業日分＋地方拠点全域を積み上げ
+========================================================= */
+function computeMonthly(shipments, params){
+  let tokyoCost = 0, tokyoVeh = 0;
+  const regionStats = {};
+  BIZ_DAYS.forEach((d, dayIdx)=>{
+    const tokyoDay = shipments.filter(s=>s.region==="東京都" && s.day===dayIdx);
+    if(tokyoDay.length){
+      const o = optimize(tokyoDay, params);
+      tokyoCost += o.cost; tokyoVeh += o.routes.length;
+    }
+    const byRegion = {};
+    shipments.forEach(s=>{
+      if(s.region==="東京都" || s.day!==dayIdx) return;
+      (byRegion[s.region] = byRegion[s.region] || []).push(s);
+    });
+    Object.entries(byRegion).forEach(([region, list])=>{
+      const o = optimizeRegionDay(list, params);
+      if(!regionStats[region]) regionStats[region] = {count:0, veh:0, cost:0};
+      regionStats[region].count += list.length;
+      regionStats[region].veh += o.routes.length;
+      regionStats[region].cost += o.cost;
+    });
+  });
+  const regionCost = Object.values(regionStats).reduce((a,r)=>a+r.cost,0);
+  const regionVeh = Object.values(regionStats).reduce((a,r)=>a+r.veh,0);
+  return {tokyoCost, tokyoVeh, regionCost, regionVeh, regionStats,
+    totalCost: tokyoCost + regionCost, totalVeh: tokyoVeh + regionVeh};
+}
+function regionalDisplayRows(monthly){
+  const rows = [];
+  REGIONS.filter(r=>r.tier!=="other").forEach(r=>{
+    const s = monthly.regionStats[r.key] || {count:0, veh:0, cost:0};
+    rows.push({label:r.key, tier:r.tier, ...s});
+  });
+  const otherAgg = {count:0, veh:0, cost:0, prefCount:0};
+  REGIONS.filter(r=>r.tier==="other").forEach(r=>{
+    const s = monthly.regionStats[r.key];
+    if(s){ otherAgg.count += s.count; otherAgg.veh += s.veh; otherAgg.cost += s.cost; }
+    otherAgg.prefCount++;
+  });
+  rows.push({label:`その他${otherAgg.prefCount}道府県`, tier:"other", count:otherAgg.count, veh:otherAgg.veh, cost:otherAgg.cost});
+  return rows;
+}
+
+/* =========================================================
+   4. 状態管理・再計算
+========================================================= */
+let seed = 20260712;
+let shipments = [];
+let base = null;
+let dayBase = null;
+let opt  = null;
+let monthly = null;
+let selectedDay = 0;
+let dataFilter = {q:"", region:"", time:"", ltd:false, ext:false, page:1};
+const PAGE_SIZE = 15;
+
+function params(){
+  const amBuffer = +document.getElementById("sliderAm").value;
+  const loss = +document.getElementById("sliderLoss").value;
+  return {amBuffer, loss, amCap: Math.max(2, Math.round(amBuffer/12))};
+}
+function pickDefaultDay(){
+  let best = 0, bestScore = -1;
+  BIZ_DAYS.forEach((d, i)=>{
+    const day = shipments.filter(s=>s.region==="東京都" && s.day===i);
+    const score = day.filter(s=>s.limited).length*2 + day.filter(s=>s.extra).length + day.length*0.1;
+    if(score > bestScore){ bestScore = score; best = i; }
+  });
+  return best;
+}
+function recompute(fullReload){
+  if(fullReload){
+    shipments = generateShipments(seed);
+    base = baseline(shipments);
+    selectedDay = pickDefaultDay();
+  }
+  const p = params();
+  const tokyoDayShipments = shipments.filter(s=>s.region==="東京都" && s.day===selectedDay);
+  opt = optimize(tokyoDayShipments, p);
+  dayBase = baseline(tokyoDayShipments);
+  monthly = computeMonthly(shipments, p);
+  renderKPI();
+  renderChart();
+  renderInsights();
+  renderRoutes();
+  renderRegional();
+  if(fullReload){ renderDaySelector(); renderData(); }
+}
+
+/* =========================================================
+   5. 描画：KPI（数値トゥイーン）
+========================================================= */
+const tweens = {};
+function tweenTo(id, target, dec=0){
+  const el = document.getElementById(id);
+  if(!el) return;
+  const from = tweens[id] !== undefined ? tweens[id] : 0;
+  tweens[id] = target;
+  const t0 = performance.now(), dur = 650;
+  function step(t){
+    const p = Math.min(1, (t-t0)/dur), e = 1 - Math.pow(1-p, 3);
+    el.textContent = fmt(from + (target-from)*e, dec);
+    if(p < 1 && tweens[id] === target) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+function renderKPI(){
+  // 月間・全国サマリー
+  const totKg = shipments.reduce((a,s)=>a+s.kg,0);
+  const totM3 = shipments.reduce((a,s)=>a+s.m3,0);
+  const totBox= shipments.reduce((a,s)=>a+s.boxes,0);
+  const save = base.cost - monthly.totalCost;
+  tweenTo("kpiCount", shipments.length);
+  tweenTo("kpiKg", totKg);
+  tweenTo("kpiM3", totM3, 1);
+  tweenTo("kpiBox", totBox);
+  tweenTo("kpiBefore", base.cost);
+  tweenTo("kpiBeforeVeh", base.vehicles);
+  tweenTo("kpiAfter", monthly.totalCost);
+  tweenTo("kpiAfterVeh", monthly.totalVeh);
+  tweenTo("kpiSave", save);
+  tweenTo("kpiSavePct", save/base.cost*100, 1);
+  tweenTo("kpiSaveYear", save*12);
+  document.getElementById("kpiVehShift").textContent = `${fmt(base.vehicles)} → ${fmt(monthly.totalVeh)}`;
+  const tokyoCount = shipments.filter(s=>s.region==="東京都").length;
+  document.getElementById("kpiRegionSplit").textContent =
+    `東京都内 ${fmt(tokyoCount)}件（¥${yen(monthly.tokyoCost)}） / 地方拠点 ${fmt(shipments.length-tokyoCount)}件（¥${yen(monthly.regionCost)}）`;
+
+  // 選択日：東京都内フォーカス
+  const daySave = dayBase.cost - opt.cost;
+  document.getElementById("dayLabel").textContent = dayLabel(BIZ_DAYS[selectedDay]);
+  document.getElementById("dayCount").textContent = fmt(opt.routes.reduce((a,r)=>a+r.stops.length,0));
+  document.getElementById("dayBefore").textContent = yen(dayBase.cost);
+  document.getElementById("dayAfter").textContent = yen(opt.cost);
+  document.getElementById("daySave").textContent = yen(daySave);
+  document.getElementById("daySavePct").textContent = dayBase.cost ? (daySave/dayBase.cost*100).toFixed(0) : "0";
+  document.getElementById("dayVeh").textContent = `${dayBase.vehicles} → ${opt.routes.length}`;
+}
+
+/* =========================================================
+   6. 描画：車種別台数シフト SVGグラフ（要素を保持しCSSトランジション）
+========================================================= */
+const chart = {built:false, els:[]};
+function buildChart(){
+  const svg = document.getElementById("fleetChart");
+  const W=640, H=290, mL=46, mR=10, mT=18, mB=34;
+  const plotW = W-mL-mR, plotH = H-mT-mB;
+  const ns = "http://www.w3.org/2000/svg";
+  const mk = (tag, attrs) => { const e = document.createElementNS(ns, tag); for(const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+  svg.innerHTML = "";
+  // グリッド（5本、値は更新時に設定）
+  chart.grid = [];
+  for(let i=0;i<=4;i++){
+    const y = mT + plotH - plotH*i/4;
+    svg.appendChild(mk("line",{x1:mL,x2:W-mR,y1:y,y2:y,stroke:"#334155","stroke-width":i===0?1.25:1,"stroke-dasharray":i===0?"":"2 4"}));
+    const t = mk("text",{x:mL-8,y:y+3.5,"text-anchor":"end",fill:"#94a3b8","font-size":"10"});
+    svg.appendChild(t); chart.grid.push(t);
+  }
+  chart.els = [];
+  const groupW = plotW/4;
+  VEHICLES.forEach((v,i)=>{
+    const cx = mL + groupW*i + groupW/2;
+    const bw = 30, gap = 6;
+    // 個別手配（ゴースト：車種色の枠＋淡塗り）
+    const rb = mk("rect",{x:cx-bw-gap/2, y:mT+plotH, width:bw, height:0, rx:3, fill:v.color, "fill-opacity":"0.18", stroke:v.color, "stroke-opacity":"0.55", "stroke-width":1.25, "stroke-dasharray":"3 2", class:"bar-rect", "data-i":i, "data-k":"before"});
+    // 最適化後（実色）
+    const ra = mk("rect",{x:cx+gap/2, y:mT+plotH, width:bw, height:0, rx:3, fill:v.color, class:"bar-rect", "data-i":i, "data-k":"after"});
+    const lb = mk("text",{x:cx-gap/2-bw/2, y:mT+plotH-5, "text-anchor":"middle", fill:"#94a3b8","font-size":"11","font-weight":"600"});
+    const la = mk("text",{x:cx+gap/2+bw/2, y:mT+plotH-5, "text-anchor":"middle", fill:"#f1f5f9","font-size":"11","font-weight":"700"});
+    const cat = mk("text",{x:cx, y:H-12, "text-anchor":"middle", fill:"#cbd5e1","font-size":"11","font-weight":"600"});
+    cat.textContent = v.label;
+    svg.append(rb, ra, lb, la, cat);
+    chart.els.push({rb, ra, lb, la});
+    [rb, ra].forEach(el=>{
+      el.style.cursor = "pointer";
+      el.addEventListener("mousemove", ev=>{
+        const k = el.dataset.k, n = (k==="before"?dayBase.counts:opt.counts)[i];
+        showTip(ev, `<div class="font-bold" style="color:${v.color}">${v.name}</div>
+          <div class="text-slate-300 mt-0.5">${k==="before"?"個別手配":"最適化後"}：<b>${n}台</b></div>
+          <div class="text-slate-400">運賃小計 ¥${yen(n*v.cost)}</div>`);
+      });
+      el.addEventListener("mouseleave", hideTip);
+    });
+  });
+  chart.dims = {mT, plotH};
+  chart.built = true;
+}
+function renderChart(){
+  if(!chart.built) buildChart();
+  const {mT, plotH} = chart.dims;
+  const maxVal = Math.max(...dayBase.counts, ...opt.counts, 1);
+  const niceMax = Math.ceil(maxVal/4)*4 || 4;
+  chart.grid.forEach((t,i)=> t.textContent = fmt(niceMax*i/4) + (i===4?" 台":""));
+  VEHICLES.forEach((v,i)=>{
+    const hB = dayBase.counts[i]/niceMax*plotH, hA = opt.counts[i]/niceMax*plotH;
+    const e = chart.els[i];
+    e.rb.setAttribute("y", mT+plotH-hB); e.rb.setAttribute("height", Math.max(hB, dayBase.counts[i]>0?2:0));
+    e.ra.setAttribute("y", mT+plotH-hA); e.ra.setAttribute("height", Math.max(hA, opt.counts[i]>0?2:0));
+    e.lb.setAttribute("y", mT+plotH-hB-5); e.lb.textContent = dayBase.counts[i];
+    e.la.setAttribute("y", mT+plotH-hA-5); e.la.textContent = opt.counts[i];
+  });
+  // 下部チップ：車種別の前後台数
+  const row = document.getElementById("fleetChipRow");
+  row.innerHTML = VEHICLES.map((v,i)=>`
+    <div class="bg-slate-900/60 border border-slate-700/60 rounded-lg px-2.5 py-1.5 text-center">
+      <p class="text-[10px] font-semibold" style="color:${v.color}">${v.label} <span class="text-slate-500">¥${fmt(v.cost/10000,1)}万</span></p>
+      <p class="text-xs tabular text-slate-300 mt-0.5">${dayBase.counts[i]} <span class="text-slate-500">→</span> <b class="text-slate-100">${opt.counts[i]}</b> 台</p>
+    </div>`).join("");
+}
+
+/* =========================================================
+   7. 描画：インサイトログ
+========================================================= */
+function renderInsights(){
+  const box = document.getElementById("insightLog");
+  const style = {
+    crit:{bd:"border-l-[#d03b3b]", bg:"bg-red-950/30",   chip:"bg-red-500/15 text-red-300 border-red-500/30"},
+    good:{bd:"border-l-[#0ca30c]", bg:"bg-emerald-950/30",chip:"bg-emerald-500/15 text-emerald-300 border-emerald-500/30"},
+    time:{bd:"border-l-[#fab219]", bg:"bg-amber-950/25",  chip:"bg-amber-500/15 text-amber-300 border-amber-500/30"},
+  };
+  const orderT = {crit:0, time:1, good:2};
+  const items = [...opt.insights].sort((a,b)=>orderT[a.type]-orderT[b.type]);
+  document.getElementById("insightCount").textContent = items.length + "件";
+  box.innerHTML = items.map(it=>{
+    const s = style[it.type];
+    return `<div class="fade-in border-l-4 ${s.bd} ${s.bg} rounded-r-lg px-3 py-2">
+      <span class="inline-block text-[10px] font-bold border rounded px-1.5 py-px ${s.chip}">【${it.tag}】</span>
+      <p class="text-[11px] leading-relaxed text-slate-300 mt-1">${it.text}</p>
+    </div>`;
+  }).join("") || `<p class="text-xs text-slate-500">制約アラートはありません。</p>`;
+}
+
+/* =========================================================
+   8. 描画：ルート別積載率テーブル
+========================================================= */
+function utilBar(pct, isBottleneck){
+  const color = pct>=85 ? "var(--c-good)" : pct>=60 ? "var(--c-kei)" : "var(--c-warn)";
+  return `<div class="flex items-center gap-2">
+    <div class="flex-1 h-2 bg-slate-700/60 rounded-full overflow-hidden">
+      <div class="util-bar h-full rounded-full" style="width:${Math.min(100,pct)}%;background:${color}"></div>
+    </div>
+    <span class="tabular w-11 text-right ${isBottleneck?"font-bold text-slate-100":"text-slate-400"}">${pct.toFixed(0)}%</span>
+  </div>`;
+}
+function renderRoutes(){
+  const tb = document.getElementById("routeTbody");
+  const p = params();
+  tb.innerHTML = opt.routes.map(r=>{
+    const v = VEHICLES[r.cls];
+    const wPct = r.kg/v.maxKg*100, mPct = r.m3/v.maxM3*100;
+    const cross = r.areas.size > 1;
+    const amN = r.am, pmN = r.stops.filter(s=>s.tw==="PM").length;
+    const timeChips = [
+      amN ? `<span class="inline-block bg-blue-500/15 text-blue-300 border border-blue-500/30 rounded px-1.5 py-px text-[10px] font-semibold">AM ${amN}件</span>` : "",
+      pmN ? `<span class="inline-block bg-slate-600/40 text-slate-300 border border-slate-500/40 rounded px-1.5 py-px text-[10px] font-semibold">PM ${pmN}件</span>` : "",
+    ].filter(Boolean).join(" ") || `<span class="text-slate-500">—</span>`;
+    const constraints = [
+      r.limited ? `<span class="inline-block bg-red-500/15 text-red-300 border border-red-500/30 rounded px-1.5 py-px text-[10px] font-semibold">2t限定含む</span>` : "",
+      r.extra ? `<span class="inline-block bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded px-1.5 py-px text-[10px] font-semibold">付帯 ${r.extra}件</span>` : "",
+    ].filter(Boolean).join(" ") || `<span class="text-slate-500">—</span>`;
+    return `<tr class="border-b border-slate-700/50 hover:bg-slate-700/20">
+      <td class="py-2 pr-3 font-semibold tabular text-slate-200">${r.no}</td>
+      <td class="py-2 pr-3"><span class="inline-flex items-center gap-1.5 font-bold" style="color:${v.color}"><span class="w-2 h-2 rounded-full" style="background:${v.color}"></span>${v.label}</span></td>
+      <td class="py-2 pr-3 text-right tabular text-slate-300">${r.stops.length}</td>
+      <td class="py-2 pr-3">${utilBar(wPct, wPct>=mPct)}</td>
+      <td class="py-2 pr-3">${utilBar(mPct, mPct>wPct)}</td>
+      <td class="py-2 pr-3">${timeChips}</td>
+      <td class="py-2 pr-3">
+        <span class="text-slate-300">${[...r.areas].join(" ⇄ ")}</span>
+        ${cross ? `<span class="ml-1 inline-block bg-violet-500/15 text-violet-300 border border-violet-500/30 rounded px-1.5 py-px text-[10px] font-bold">越境</span>` : ""}
+      </td>
+      <td class="py-2">${constraints}</td>
+    </tr>`;
+  }).join("");
+}
+
+/* =========================================================
+   8b. 描画：表示日セレクタ
+========================================================= */
+function renderDaySelector(){
+  const sel = document.getElementById("daySelect");
+  sel.innerHTML = BIZ_DAYS.map((d,i)=>{
+    const n = shipments.filter(s=>s.region==="東京都" && s.day===i).length;
+    return `<option value="${i}" ${i===selectedDay?"selected":""}>${dayLabel(d)}（${n}件）</option>`;
+  }).join("");
+}
+
+/* =========================================================
+   8c. 描画：地方拠点サマリー
+========================================================= */
+function renderRegional(){
+  const tb = document.getElementById("regionalTbody");
+  const rows = regionalDisplayRows(monthly);
+  const tierChip = {
+    major:"bg-blue-500/15 text-blue-300 border-blue-500/30",
+    kanto:"bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+    other:"bg-slate-600/30 text-slate-300 border-slate-500/40",
+  };
+  tb.innerHTML = rows.map(r=>{
+    const avgVeh = r.count ? (r.veh/r.count) : 0;
+    const note = r.tier==="other"
+      ? "日次0～1件が大半のため都度1台便が中心"
+      : (avgVeh < 0.5 ? "複数日をまとめて1台便に集約" : "小口のため都度1～2台便が中心");
+    return `<tr class="border-b border-slate-700/50 hover:bg-slate-700/20">
+      <td class="py-2 pr-3 font-semibold text-slate-200">${r.label}</td>
+      <td class="py-2 pr-3"><span class="inline-block border rounded px-1.5 py-px text-[10px] font-semibold ${tierChip[r.tier]}">${TIER_LABEL[r.tier]}</span></td>
+      <td class="py-2 pr-3 text-right tabular text-slate-300">${fmt(r.count)}件</td>
+      <td class="py-2 pr-3 text-right tabular text-slate-300">${fmt(r.veh)}台</td>
+      <td class="py-2 pr-3 text-right tabular text-slate-100 font-semibold">¥${yen(r.cost)}</td>
+      <td class="py-2 text-slate-500">${note}</td>
+    </tr>`;
+  }).join("");
+  document.getElementById("regionalTotal").textContent =
+    `月間 ${fmt(rows.reduce((a,r)=>a+r.count,0))}件 / ¥${yen(monthly.regionCost)}`;
+}
+
+/* =========================================================
+   9. 描画：元データテーブル（フィルタ＋ページネーション）
+========================================================= */
+function filteredData(){
+  return shipments.filter(s=>{
+    if(dataFilter.q && !s.name.includes(dataFilter.q)) return false;
+    if(dataFilter.region && s.region !== dataFilter.region) return false;
+    if(dataFilter.time && s.tw !== dataFilter.time) return false;
+    if(dataFilter.ltd && !s.limited) return false;
+    if(dataFilter.ext && !s.extra) return false;
+    return true;
+  });
+}
+function renderData(){
+  const rows = filteredData();
+  const pages = Math.max(1, Math.ceil(rows.length/PAGE_SIZE));
+  dataFilter.page = Math.min(dataFilter.page, pages);
+  const start = (dataFilter.page-1)*PAGE_SIZE;
+  const view = rows.slice(start, start+PAGE_SIZE);
+  const twLabel = {AM:`<span class="inline-block bg-blue-500/15 text-blue-300 border border-blue-500/30 rounded px-1.5 py-px text-[10px] font-semibold">午前着</span>`,
+                   PM:`<span class="inline-block bg-slate-600/40 text-slate-300 border border-slate-500/40 rounded px-1.5 py-px text-[10px] font-semibold">14–16時</span>`,
+                   NONE:`<span class="text-slate-500">指定なし</span>`};
+  document.getElementById("dataTbody").innerHTML = view.map(s=>`
+    <tr class="border-b border-slate-700/40 hover:bg-slate-700/20">
+      <td class="py-1.5 pr-3 tabular text-slate-500">${String(s.id).padStart(4,"0")}</td>
+      <td class="py-1.5 pr-3 text-slate-200">${s.name}</td>
+      <td class="py-1.5 pr-3 tabular text-slate-400 whitespace-nowrap">${dayLabel(BIZ_DAYS[s.day])}</td>
+      <td class="py-1.5 pr-3 text-slate-300 whitespace-nowrap">${s.region}${s.region==="東京都"?`<span class="text-slate-500">（${s.area}）</span>`:""}</td>
+      <td class="py-1.5 pr-3 tabular text-slate-400">〒${s.zip}</td>
+      <td class="py-1.5 pr-3 text-right tabular text-slate-300">${fmt(s.kg)}</td>
+      <td class="py-1.5 pr-3 text-right tabular text-slate-300">${s.m3.toFixed(2)}</td>
+      <td class="py-1.5 pr-3 text-right tabular text-slate-300">${s.boxes}</td>
+      <td class="py-1.5 pr-3">${twLabel[s.tw]}</td>
+      <td class="py-1.5 pr-3">${s.limited ? `<span class="inline-block bg-red-500/15 text-red-300 border border-red-500/30 rounded px-1.5 py-px text-[10px] font-bold">2t限定</span>` : `<span class="text-slate-600">—</span>`}</td>
+      <td class="py-1.5">${s.extra ? `<span class="inline-block bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded px-1.5 py-px text-[10px] font-semibold">${s.extra}</span>` : `<span class="text-slate-600">—</span>`}</td>
+    </tr>`).join("") || `<tr><td colspan="11" class="py-6 text-center text-slate-500">条件に一致するデータがありません</td></tr>`;
+  document.getElementById("dataCount").textContent = `${fmt(rows.length)} / ${fmt(shipments.length)} 件`;
+  document.getElementById("pageInfo").textContent = rows.length ? `${start+1}–${Math.min(start+PAGE_SIZE, rows.length)} 件目を表示` : "";
+  // ページャー
+  const pager = document.getElementById("pager");
+  const btn = (label, page, active, disabled) =>
+    `<button data-page="${page}" ${disabled?"disabled":""} class="min-w-[30px] px-2 py-1 rounded-md border text-xs tabular ${active?"bg-blue-600 border-blue-500 font-bold":"bg-slate-900 border-slate-600 hover:border-slate-400"} ${disabled?"opacity-40 cursor-default":""}">${label}</button>`;
+  let items = [btn("‹", dataFilter.page-1, false, dataFilter.page===1)];
+  const around = [];
+  for(let p=1;p<=pages;p++){
+    if(p===1 || p===pages || Math.abs(p-dataFilter.page)<=1) around.push(p);
+  }
+  let prev = 0;
+  for(const p of around){
+    if(p-prev>1) items.push(`<span class="px-1 text-slate-500">…</span>`);
+    items.push(btn(p, p, p===dataFilter.page, false));
+    prev = p;
+  }
+  items.push(btn("›", dataFilter.page+1, false, dataFilter.page===pages));
+  pager.innerHTML = items.join("");
+  pager.querySelectorAll("button[data-page]").forEach(b=>b.addEventListener("click", ()=>{
+    dataFilter.page = +b.dataset.page; renderData();
+  }));
+}
+
+/* =========================================================
+   10. ツールチップ・イベント配線
+========================================================= */
+const tip = document.getElementById("tooltip");
+function showTip(ev, html){
+  tip.innerHTML = html;
+  tip.style.opacity = 1;
+  const x = Math.min(ev.clientX+14, window.innerWidth-190);
+  tip.style.left = x+"px"; tip.style.top = (ev.clientY+14)+"px";
+}
+function hideTip(){ tip.style.opacity = 0; }
+
+let debounceT = null;
+function onSlider(){
+  document.getElementById("valAm").textContent = document.getElementById("sliderAm").value;
+  document.getElementById("valLoss").textContent = document.getElementById("sliderLoss").value;
+  clearTimeout(debounceT);
+  debounceT = setTimeout(()=>recompute(false), 120);
+}
+document.getElementById("sliderAm").addEventListener("input", onSlider);
+document.getElementById("sliderLoss").addEventListener("input", onSlider);
+document.getElementById("btnRegen").addEventListener("click", ()=>{
+  seed = (Math.random()*2**31)|0;
+  dataFilter.page = 1;
+  recompute(true);
+});
+document.getElementById("daySelect").addEventListener("change", e=>{
+  selectedDay = +e.target.value;
+  const p = params();
+  const tokyoDayShipments = shipments.filter(s=>s.region==="東京都" && s.day===selectedDay);
+  opt = optimize(tokyoDayShipments, p);
+  dayBase = baseline(tokyoDayShipments);
+  renderKPI(); renderChart(); renderInsights(); renderRoutes();
+});
+// データテーブル フィルター
+const fltRegion = document.getElementById("fltRegion");
+const ogTokyo = document.createElement("optgroup"); ogTokyo.label = "東京都";
+const oTokyo = document.createElement("option"); oTokyo.value = "東京都"; oTokyo.textContent = "東京都";
+ogTokyo.appendChild(oTokyo); fltRegion.appendChild(ogTokyo);
+["major","kanto","other"].forEach(tier=>{
+  const og = document.createElement("optgroup"); og.label = TIER_LABEL[tier];
+  REGIONS.filter(r=>r.tier===tier).forEach(r=>{
+    const o = document.createElement("option"); o.value = r.key; o.textContent = r.key; og.appendChild(o);
+  });
+  fltRegion.appendChild(og);
+});
+document.getElementById("fltQ").addEventListener("input", e=>{ dataFilter.q=e.target.value.trim(); dataFilter.page=1; renderData(); });
+fltRegion.addEventListener("change", e=>{ dataFilter.region=e.target.value; dataFilter.page=1; renderData(); });
+document.getElementById("fltTime").addEventListener("change", e=>{ dataFilter.time=e.target.value; dataFilter.page=1; renderData(); });
+document.getElementById("fltLtd").addEventListener("change", e=>{ dataFilter.ltd=e.target.checked; dataFilter.page=1; renderData(); });
+document.getElementById("fltExt").addEventListener("change", e=>{ dataFilter.ext=e.target.checked; dataFilter.page=1; renderData(); });
+document.getElementById("fltClear").addEventListener("click", ()=>{
+  dataFilter = {q:"", region:"", time:"", ltd:false, ext:false, page:1};
+  document.getElementById("fltQ").value=""; fltRegion.value=""; document.getElementById("fltTime").value="";
+  document.getElementById("fltLtd").checked=false; document.getElementById("fltExt").checked=false;
+  renderData();
+});
+
+/* 初期描画 */
+recompute(true);
+</script>
+</body>
+</html>
