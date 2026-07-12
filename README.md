@@ -3,7 +3,8 @@
 東京都内（1日15件想定）を中心に、大阪・愛知・福岡・関東近郊6県（各1日3〜4件）・その他37道府県（各1日0〜1件）の出荷指示ダミーデータを月次で積み上げ、フィジカル制約（車格制限・付帯作業・時間指定・重量/容積ダブルチェック）を考慮した配車・積み合わせ最適化をブラウザ内でリアルタイムにシミュレートするダッシュボード。
 
 - **構成**: 単一 `index.html`（Tailwind CDN + 標準SVG/HTML、外部チャートライブラリ不使用、モックデータ動的生成）
-- **公開想定**: GitHub Pages main直配信（`Inv_mgmt_optim` と同方式。Actions不要、pushで数分後に自動反映）
+- **GitHub**: https://github.com/Logtk/delivery-consolidation-vrp
+- **デモ**: https://logtk.github.io/delivery-consolidation-vrp/ （`Inv_mgmt_optim` と同方式。main直配信・Actions不要、pushで数分後に自動反映）
 - **ローカル確認**: `index.html` をブラウザで開くだけ（Tailwind CDNのためネット接続が必要）
 
 ## 機能
