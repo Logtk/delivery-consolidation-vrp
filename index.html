@@ -746,6 +746,7 @@ function tweenTo(id, target, dec=0){
   if(!el) return;
   const from = tweens[id] !== undefined ? tweens[id] : 0;
   tweens[id] = target;
+  el.textContent = fmt(target, dec); // rAFが遅延・停止する環境でも最終値を即座に表示するための同期フォールバック
   const t0 = performance.now(), dur = 650;
   function step(t){
     const p = Math.min(1, (t-t0)/dur), e = 1 - Math.pow(1-p, 3);
